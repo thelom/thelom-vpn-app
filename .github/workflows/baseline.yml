@@ -1,0 +1,90 @@
+name: Baseline Android APK
+
+on:
+  workflow_dispatch:
+
+env:
+  FLUTTER_VERSION: '3.38.5'
+
+jobs:
+  android-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+
+      - name: Clean up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+          rm -rf ~/.gradle/caches
+          sudo apt-get autoremove -y
+          sudo apt-get clean -y
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2.21.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: zulu
+          java-version: 17
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Cache Gradle
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Setup dependencies
+        run: |
+          make android-apk-install-deps
+          echo "$HOME/.pub-cache/bin" >> $GITHUB_PATH
+
+      - name: Prepare
+        run: make android-apk-prepare
+
+      - name: Setup throwaway Android signing
+        run: |
+          keytool -genkeypair -v \
+            -keystore android/key.jks \
+            -alias baseline \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass baseline123 -keypass baseline123 \
+            -dname "CN=Baseline"
+          { echo "storeFile=$(pwd)/android/key.jks";
+            echo "storePassword=baseline123";
+            echo "keyPassword=baseline123";
+            echo "keyAlias=baseline"; } > android/key.properties
+          cat android/key.properties
+
+      - name: Build APK
+        run: make android-apk-release
+
+      - name: Copy to out
+        run: |
+          mkdir -p out
+          ls -R ./build/app/outputs || true
+          cp ./build/app/outputs/flutter-apk/*arm64-v8a*.apk out/TheLom-Android-arm64.apk || echo "no arm64 apk"
+          cp ./build/app/outputs/flutter-apk/*armeabi-v7a*.apk out/TheLom-Android-arm7.apk || echo "no arm7 apk"
+          cp ./build/app/outputs/flutter-apk/app-release.apk out/TheLom-Android-universal.apk || echo "no universal apk"
+          ls -la out
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: android-apk-baseline
+          path: ./out
+          retention-days: 7
