@@ -56,6 +56,9 @@ jobs:
       - name: Prepare
         run: make android-apk-prepare
 
+      - name: Regenerate native splash with brand colors
+        run: dart run flutter_native_splash:create
+
       - name: Setup throwaway Android signing
         run: |
           keytool -genkeypair -v \
